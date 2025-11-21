@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subir Factura XML</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      padding: 40px;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      max-width: 500px;
+      width: 100%;
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+    .upload-area {
+      border: 3px dashed #667eea;
+      border-radius: 15px;
+      padding: 40px;
+      text-align: center;
+      background: #f8f9ff;
+      transition: all 0.3s;
+      cursor: pointer;
+    }
+    .upload-area:hover {
+      border-color: #764ba2;
+      background: #f0f2ff;
+    }
+    .upload-area.dragging {
+      border-color: #764ba2;
+      background: #e8ebff;
+    }
+    .upload-icon {
+      font-size: 48px;
+      margin-bottom: 15px;
+    }
+    input[type="file"] {
+      display: none;
+    }
+    .file-info {
+      margin-top: 20px;
+      padding: 15px;
+      background: #e8f5e9;
+      border-radius: 10px;
+      display: none;
+    }
+    .file-info.show {
+      display: block;
+    }
+    button {
+      width: 100%;
+      padding: 15px;
+      margin-top: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    button:hover {
+      transform: translateY(-2px);
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .message {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 10px;
+      display: none;
+      text-align: center;
+    }
+    .message.show {
+      display: block;
+    }
+    .message.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .message.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+      display: none;
+    }
+    .loader.show {
+      display: block;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📄 Subir Factura Electrónica</h1>
+    <p class="subtitle">Arrastra tu archivo XML o haz clic para seleccionar</p>
+    
+    <div class="upload-area" id="uploadArea">
+      <div class="upload-icon">📁</div>
+      <p><strong>Arrastra tu archivo aquí</strong></p>
+      <p style="color: #999; font-size: 14px; margin-top: 10px;">o haz clic para seleccionar</p>
+      <input type="file" id="fileInput" accept=".xml">
+    </div>
+
+    <div class="file-info" id="fileInfo">
+      <strong>Archivo seleccionado:</strong><br>
+      <span id="fileName"></span>
+    </div>
+
+    <button id="uploadBtn" disabled>Procesar Factura</button>
+
+    <div class="loader" id="loader"></div>
+    <div class="message" id="message"></div>
+  </div>
+
+  <script>
+    // CONFIGURACIÓN - CAMBIA ESTOS VALORES
+    const WEBHOOK_URL = 'https://newscience.app.n8n.cloud/webhook/upload-factura';
+    const API_KEY = 'contabilidad_newscience';
+
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const loader = document.getElementById('loader');
+    const message = document.getElementById('message');
+
+    let selectedFile = null;
+
+    // Click para seleccionar archivo
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    // Prevenir comportamiento por defecto del drag
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      uploadArea.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    // Highlight al arrastrar
+    ['dragenter', 'dragover'].forEach(eventName => {
+      uploadArea.addEventListener(eventName, () => {
+        uploadArea.classList.add('dragging');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      uploadArea.addEventListener(eventName, () => {
+        uploadArea.classList.remove('dragging');
+      });
+    });
+
+    // Manejar drop
+    uploadArea.addEventListener('drop', (e) => {
+      const files = e.dataTransfer.files;
+      handleFiles(files);
+    });
+
+    // Manejar selección de archivo
+    fileInput.addEventListener('change', (e) => {
+      handleFiles(e.target.files);
+    });
+
+    function handleFiles(files) {
+      if (files.length === 0) return;
+      
+      const file = files[0];
+      
+      // Validar que sea XML
+      if (!file.name.toLowerCase().endsWith('.xml')) {
+        showMessage('error', '❌ Por favor selecciona un archivo XML válido');
+        return;
+      }
+
+      selectedFile = file;
+      fileName.textContent = file.name;
+      fileInfo.classList.add('show');
+      uploadBtn.disabled = false;
+      message.classList.remove('show');
+    }
+
+    // Subir archivo
+    uploadBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      uploadBtn.disabled = true;
+      loader.classList.add('show');
+      message.classList.remove('show');
+
+      try {
+        // Leer el archivo como texto
+        const fileContent = await readFileAsText(selectedFile);
+
+        // Enviar al webhook
+        const response = await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': API_KEY
+          },
+          body: JSON.stringify({
+            filename: selectedFile.name,
+            data: fileContent
+          })
+        });
+
+        if (response.ok) {
+          showMessage('success', '✅ Factura procesada correctamente. El PDF ha sido enviado por email.');
+          resetForm();
+        } else {
+          throw new Error('Error en el servidor');
+        }
+      } catch (error) {
+        showMessage('error', '❌ Error al procesar la factura. Intenta nuevamente.');
+        uploadBtn.disabled = false;
+      } finally {
+        loader.classList.remove('show');
+      }
+    });
+
+    function readFileAsText(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsText(file);
+      });
+    }
+
+    function showMessage(type, text) {
+      message.className = `message ${type} show`;
+      message.textContent = text;
+    }
+
+    function resetForm() {
+      selectedFile = null;
+      fileInput.value = '';
+      fileInfo.classList.remove('show');
+      uploadBtn.disabled = true;
+    }
+  </script>
+</body>
+</html>
