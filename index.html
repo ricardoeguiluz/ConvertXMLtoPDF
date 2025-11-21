@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Subir Factura XML</title>
   <style>
+    /* ... (todo el CSS igual) ... */
     * {
       margin: 0;
       padding: 0;
@@ -128,6 +129,13 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+    .footer {
+      margin-top: 30px;
+      text-align: center;
+      color: white;
+      font-size: 12px;
+      opacity: 0.8;
+    }
   </style>
 </head>
 <body>
@@ -143,8 +151,9 @@
     </div>
 
     <div class="file-info" id="fileInfo">
-      <strong>Archivo seleccionado:</strong><br>
-      <span id="fileName"></span>
+      <strong>✓ Archivo seleccionado:</strong><br>
+      <span id="fileName"></span><br>
+      <small id="fileSize" style="color: #666;"></small>
     </div>
 
     <button id="uploadBtn" disabled>Procesar Factura</button>
@@ -153,14 +162,19 @@
     <div class="message" id="message"></div>
   </div>
 
+  <div class="footer">
+    Sistema de Procesamiento de Facturas Electrónicas
+  </div>
+
   <script>
-    // CONFIGURACIÓN
+    // ⚙️ CONFIGURACIÓN
     const WEBHOOK_URL = 'https://newscience.app.n8n.cloud/webhook/upload-factura';
 
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
     const fileInfo = document.getElementById('fileInfo');
     const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
     const uploadBtn = document.getElementById('uploadBtn');
     const loader = document.getElementById('loader');
     const message = document.getElementById('message');
@@ -170,9 +184,10 @@
     // Click para seleccionar archivo
     uploadArea.addEventListener('click', () => fileInput.click());
 
-    // Prevenir comportamiento por defecto del drag
+    // Prevenir comportamiento por defecto
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
       uploadArea.addEventListener(eventName, preventDefaults, false);
+      document.body.addEventListener(eventName, preventDefaults, false);
     });
 
     function preventDefaults(e) {
@@ -180,7 +195,7 @@
       e.stopPropagation();
     }
 
-    // Highlight al arrastrar
+    // Efectos visuales
     ['dragenter', 'dragover'].forEach(eventName => {
       uploadArea.addEventListener(eventName, () => {
         uploadArea.classList.add('dragging');
@@ -199,80 +214,140 @@
       handleFiles(files);
     });
 
-    // Manejar selección de archivo
+    // Manejar selección
     fileInput.addEventListener('change', (e) => {
       handleFiles(e.target.files);
     });
 
     function handleFiles(files) {
-      if (files.length === 0) return;
+      console.log('📁 Archivos seleccionados:', files);
+      
+      if (files.length === 0) {
+        console.warn('⚠️ No se seleccionó ningún archivo');
+        return;
+      }
       
       const file = files[0];
+      console.log('📄 Archivo:', file.name, file.size, file.type);
       
-      // Validar que sea XML
+      // Validar extensión
       if (!file.name.toLowerCase().endsWith('.xml')) {
         showMessage('error', '❌ Por favor selecciona un archivo XML válido');
         return;
       }
 
+      // Validar tamaño (máximo 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        showMessage('error', '❌ El archivo es muy grande. Máximo 5MB');
+        return;
+      }
+
       selectedFile = file;
       fileName.textContent = file.name;
+      fileSize.textContent = formatFileSize(file.size);
       fileInfo.classList.add('show');
       uploadBtn.disabled = false;
       message.classList.remove('show');
+      
+      console.log('✅ Archivo válido seleccionado');
     }
 
-    // Subir archivo
+    function formatFileSize(bytes) {
+      if (bytes < 1024) return bytes + ' bytes';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    // SUBIR ARCHIVO
     uploadBtn.addEventListener('click', async () => {
-      if (!selectedFile) return;
+      console.log('🚀 Iniciando procesamiento...');
+      
+      if (!selectedFile) {
+        console.error('❌ No hay archivo seleccionado');
+        return;
+      }
 
       uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Procesando...';
       loader.classList.add('show');
       message.classList.remove('show');
 
       try {
-        // Leer el archivo como texto
+        console.log('📖 Leyendo archivo...');
+        
+        // Leer archivo como texto
         const fileContent = await readFileAsText(selectedFile);
+        
+        console.log('📝 Contenido leído:', fileContent.substring(0, 200) + '...');
+        console.log('📡 Enviando a:', WEBHOOK_URL);
+
+        // Preparar payload
+        const payload = {
+          filename: selectedFile.name,
+          data: fileContent
+        };
+
+        console.log('📦 Payload:', {
+          filename: payload.filename,
+          dataLength: payload.data.length
+        });
 
         // Enviar al webhook
         const response = await fetch(WEBHOOK_URL, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': API_KEY
+            'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            filename: selectedFile.name,
-            data: fileContent
-          })
+          body: JSON.stringify(payload)
         });
 
+        console.log('📨 Respuesta:', response.status, response.statusText);
+
         if (response.ok) {
-          showMessage('success', '✅ Factura procesada correctamente. El PDF ha sido enviado por email.');
+          const responseData = await response.json();
+          console.log('✅ Respuesta exitosa:', responseData);
+          showMessage('success', '✅ ¡Factura procesada correctamente! El PDF ha sido enviado por email.');
           resetForm();
         } else {
-          throw new Error('Error en el servidor');
+          const errorText = await response.text();
+          console.error('❌ Error del servidor:', errorText);
+          throw new Error(`Error del servidor: ${response.status}`);
         }
       } catch (error) {
-        showMessage('error', '❌ Error al procesar la factura. Intenta nuevamente.');
+        console.error('❌ Error completo:', error);
+        console.error('Stack:', error.stack);
+        showMessage('error', `❌ Error: ${error.message}`);
         uploadBtn.disabled = false;
+        uploadBtn.textContent = 'Procesar Factura';
       } finally {
         loader.classList.remove('show');
       }
     });
 
     function readFileAsText(file) {
+      console.log('🔍 Leyendo archivo:', file.name);
+      
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = reject;
-        reader.readAsText(file);
+        
+        reader.onload = (e) => {
+          console.log('✅ Archivo leído correctamente');
+          resolve(e.target.result);
+        };
+        
+        reader.onerror = (e) => {
+          console.error('❌ Error al leer archivo:', e);
+          reject(new Error('Error al leer el archivo'));
+        };
+        
+        reader.readAsText(file, 'UTF-8');
       });
     }
 
     function showMessage(type, text) {
       message.className = `message ${type} show`;
       message.textContent = text;
+      console.log(`💬 Mensaje mostrado: [${type}] ${text}`);
     }
 
     function resetForm() {
@@ -280,7 +355,12 @@
       fileInput.value = '';
       fileInfo.classList.remove('show');
       uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Procesar Factura';
+      console.log('🔄 Formulario reseteado');
     }
+
+    // Log inicial
+    console.log('🎯 Sistema listo. Webhook URL:', WEBHOOK_URL);
   </script>
 </body>
 </html>
